@@ -80,6 +80,8 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
     methodChannel = new MethodChannel(messenger, "github.com/clovisnicolas/flutter_contacts");
     methodChannel.setMethodCallHandler(this);
     this.contentResolver = context.getContentResolver();
+    // Initialize resources from the context
+    this.resources = context.getResources();
   }
 
   @Override
@@ -571,7 +573,10 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
         String phoneNumber = cursor.getString(cursor.getColumnIndex(Phone.NUMBER));
         if (!TextUtils.isEmpty(phoneNumber)){
           int type = cursor.getInt(cursor.getColumnIndex(Phone.TYPE));
-          String label = Item.getPhoneLabel(resources, type, cursor, localizedLabels);
+          // Add null check for resources
+          String label = resources != null 
+              ? Item.getPhoneLabel(resources, type, cursor, localizedLabels)
+              : String.valueOf(type); // Fallback to type number if resources is null
           contact.phones.add(new Item(label, phoneNumber, type));
         }
       }
@@ -580,7 +585,10 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
         String email = cursor.getString(cursor.getColumnIndex(Email.ADDRESS));
         int type = cursor.getInt(cursor.getColumnIndex(Email.TYPE));
         if (!TextUtils.isEmpty(email)) {
-          String label = Item.getEmailLabel(resources, type, cursor, localizedLabels);
+          // Add null check for resources
+          String label = resources != null
+              ? Item.getEmailLabel(resources, type, cursor, localizedLabels)
+              : String.valueOf(type); // Fallback to type number if resources is null
           contact.emails.add(new Item(label, email, type));
         }
       }
