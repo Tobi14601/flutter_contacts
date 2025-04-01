@@ -41,7 +41,6 @@ import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.plugin.common.PluginRegistry;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 import static android.app.Activity.RESULT_CANCELED;
 import static android.provider.ContactsContract.CommonDataKinds;
@@ -66,32 +65,30 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
   private final ExecutorService executor =
           new ThreadPoolExecutor(0, 10, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(1000));
 
-  private void initDelegateWithRegister(Registrar registrar) {
-    this.delegate = new ContactServiceDelegateOld(registrar);
+  private void initDelegateWith(Context context) {
+    this.delegate = new ContactServiceDelegate(context);
   }
 
-  public static void registerWith(Registrar registrar) {
-    ContactsServicePlugin instance = new ContactsServicePlugin();
-    instance.initInstance(registrar.messenger(), registrar.context());
-    instance.initDelegateWithRegister(registrar);
+  @Override
+  public void onAttachedToEngine(FlutterPluginBinding binding) {
+      ContactsServicePlugin instance = new ContactsServicePlugin();
+      instance.initInstance(binding.getBinaryMessenger(), binding.getApplicationContext());
+      instance.initDelegateWith(binding.getApplicationContext());
   }
 
   private void initInstance(BinaryMessenger messenger, Context context) {
     methodChannel = new MethodChannel(messenger, "github.com/clovisnicolas/flutter_contacts");
     methodChannel.setMethodCallHandler(this);
     this.contentResolver = context.getContentResolver();
-  }
-
-  @Override
-  public void onAttachedToEngine(FlutterPluginBinding binding) {
-    resources = binding.getApplicationContext().getResources();
-    initInstance(binding.getBinaryMessenger(), binding.getApplicationContext());
-    this.delegate = new ContactServiceDelegate(binding.getApplicationContext());
+    // Initialize resources from the context
+    this.resources = context.getResources();
   }
 
   @Override
   public void onDetachedFromEngine(FlutterPluginBinding binding) {
-    methodChannel.setMethodCallHandler(null);
+    if (methodChannel != null) {
+      methodChannel.setMethodCallHandler(null);
+    }
     methodChannel = null;
     contentResolver = null;
     this.delegate = null;
@@ -287,15 +284,19 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
           return true;
         }
         Uri contactUri = intent.getData();
-        Cursor cursor = contentResolver.query(contactUri, null, null, null, null);
-        if (cursor.moveToFirst()) {
-          String id = contactUri.getLastPathSegment();
-          getContacts("openDeviceContactPicker", id, false, false, false, localizedLabels, this.result);
+        if (intent != null){
+          Cursor cursor = contentResolver.query(contactUri, null, null, null, null);
+          if (cursor.moveToFirst()) {
+            String id = contactUri.getLastPathSegment();
+            getContacts("openDeviceContactPicker", id, false, false, false, localizedLabels, this.result);
+          } else {
+            Log.e(LOG_TAG, "onActivityResult - cursor.moveToFirst() returns false");
+            finishWithResult(FORM_OPERATION_CANCELED);
+          }
+          cursor.close();
         } else {
-          Log.e(LOG_TAG, "onActivityResult - cursor.moveToFirst() returns false");
-          finishWithResult(FORM_OPERATION_CANCELED);
+          return true;
         }
-        cursor.close();
         return true;
       }
 
@@ -374,24 +375,6 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
       }
   }
   
-  private class ContactServiceDelegateOld extends BaseContactsServiceDelegate {
-    private final PluginRegistry.Registrar registrar;
-
-    ContactServiceDelegateOld(PluginRegistry.Registrar registrar) {
-      this.registrar = registrar;
-      registrar.addActivityResultListener(this);
-    }
-
-    @Override
-    void startIntent(Intent intent, int request) {
-      if (registrar.activity() != null) {
-        registrar.activity().startActivityForResult(intent, request);
-      } else {
-        registrar.context().startActivity(intent);
-      }
-    }
-  }
-
   private class ContactServiceDelegate extends BaseContactsServiceDelegate {
     private final Context context;
     private ActivityPluginBinding activityPluginBinding;
@@ -592,7 +575,10 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
         String phoneNumber = cursor.getString(cursor.getColumnIndex(Phone.NUMBER));
         if (!TextUtils.isEmpty(phoneNumber)){
           int type = cursor.getInt(cursor.getColumnIndex(Phone.TYPE));
-          String label = Item.getPhoneLabel(resources, type, cursor, localizedLabels);
+          // Add null check for resources
+          String label = resources != null 
+              ? Item.getPhoneLabel(resources, type, cursor, localizedLabels)
+              : String.valueOf(type); // Fallback to type number if resources is null
           contact.phones.add(new Item(label, phoneNumber, type));
         }
       }
@@ -601,7 +587,10 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
         String email = cursor.getString(cursor.getColumnIndex(Email.ADDRESS));
         int type = cursor.getInt(cursor.getColumnIndex(Email.TYPE));
         if (!TextUtils.isEmpty(email)) {
-          String label = Item.getEmailLabel(resources, type, cursor, localizedLabels);
+          // Add null check for resources
+          String label = resources != null
+              ? Item.getEmailLabel(resources, type, cursor, localizedLabels)
+              : String.valueOf(type); // Fallback to type number if resources is null
           contact.emails.add(new Item(label, email, type));
         }
       }
